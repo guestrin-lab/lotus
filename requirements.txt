@@ -1,5 +1,4 @@
 backoff==2.2.1
-faiss-cpu==1.8.0.post1
 litellm==1.51.0
 numpy==1.26.4
 pandas==2.2.2

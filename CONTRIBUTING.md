@@ -4,7 +4,7 @@
 
 To set up for development, create a conda environment, install lotus, and install additional dev dependencies.
 ```
-conda create -n lotus python=3.10 -y
+conda env create -f environment.yml
 conda activate lotus
 git clone git@github.com:stanford-futuredata/lotus.git
 pip install -e .

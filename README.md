@@ -23,7 +23,7 @@ For trouble-shooting or feature requests, please raise an issue and we'll get to
 
 # Installation
 ```
-conda create -n lotus python=3.10 -y
+conda env create -f environment.yml
 conda activate lotus
 pip install lotus-ai
 ```

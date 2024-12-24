@@ -1,0 +1,7 @@
+name: lotus
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.10
+  - faiss-cpu=1.8.0

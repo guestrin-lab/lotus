@@ -15,6 +15,9 @@ sphinx:
 formats:
    - pdf
 
+conda:
+   file: environment.yml
+
 # Optionally declare the Python requirements required to build your docs
 python:
    install:
