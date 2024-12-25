@@ -37,6 +37,9 @@ docs = [
     "sphinx",
     "sphinx_rtd_theme",
 ]
+xml = [
+    "lxml",
+]
 
 [tool.ruff]
 line-length = 120

@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Any
 
 import pandas as pd
@@ -126,3 +127,12 @@ class RMOutput(BaseModel):
 ################################################################################
 class RerankerOutput(BaseModel):
     indices: list[int]
+
+
+################################################################################
+# Serialization related
+################################################################################
+class SerializationFormat(Enum):
+    JSON = "json"
+    XML = "xml"
+    DEFAULT = "default"

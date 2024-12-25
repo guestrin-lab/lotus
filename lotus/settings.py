@@ -1,4 +1,5 @@
 import lotus.models
+from lotus.types import SerializationFormat
 
 
 class Settings:
@@ -10,6 +11,9 @@ class Settings:
 
     # Cache settings
     enable_cache: bool = False
+
+    # Serialization setting
+    serialization_format: SerializationFormat = SerializationFormat.DEFAULT
 
     def configure(self, **kwargs):
         for key, value in kwargs.items():

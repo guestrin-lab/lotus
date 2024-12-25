@@ -1,8 +1,11 @@
+import re
 from typing import Any
 
 import pandas as pd
 
+import lotus
 from lotus.dtype_extensions import ImageDtype
+from lotus.types import SerializationFormat
 
 
 def context_formatter(
@@ -267,14 +270,39 @@ def extract_formatter(
 def df2text(df: pd.DataFrame, cols: list[str]) -> list[str]:
     """Formats the given DataFrame into a string containing info from cols."""
 
-    def format_row(x: pd.Series, cols: list[str]) -> str:
+    def custom_format_row(x: pd.Series, cols: list[str]) -> str:
         return "".join([f"[{cols[i].capitalize()}]: «{x[cols[i]]}»\n" for i in range(len(cols))])
+
+    def clean_and_escape_column_name(column_name: str) -> str:
+        clean_name = re.sub(r"[^\w]", "", column_name)  # Remove spaces and special characters
+        return clean_name
 
     # take cols that are in df
     cols = [col for col in cols if col in df.columns]
     if len(cols) == 0:
         return [""] * len(df)
-    formatted_rows: list[str] = df.apply(lambda x: format_row(x, cols), axis=1).tolist()
+
+    projected_df = df[cols]
+    formatted_rows: list[str] = []
+
+    if lotus.settings.serialization_format == SerializationFormat.DEFAULT:
+        formatted_rows = projected_df.apply(lambda x: custom_format_row(x, cols), axis=1).tolist()
+    elif lotus.settings.serialization_format == SerializationFormat.JSON:
+        formatted_rows = projected_df.to_json(orient="records", lines=True).splitlines()
+    elif lotus.settings.serialization_format == SerializationFormat.XML:
+        try:
+            import xml.etree.ElementTree as ET
+        except ImportError:
+            raise ImportError(
+                "The 'lxml' library is required for XML serialization. "
+                "You can install it with the following command:\n\n"
+                "    pip install 'lotus-ai[xml]'"
+            )
+        projected_df = projected_df.rename(columns=lambda x: clean_and_escape_column_name(x))
+        full_xml = projected_df.to_xml(root_name="data", row_name="row", pretty_print=False, index=False)
+        root = ET.fromstring(full_xml)
+        formatted_rows = [ET.tostring(row, encoding="unicode", method="xml") for row in root.findall("row")]
+
     return formatted_rows
 
 
