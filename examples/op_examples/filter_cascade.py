@@ -3,12 +3,14 @@ import pandas as pd
 import lotus
 from lotus.models import LM, LiteLLMRM
 from lotus.types import CascadeArgs, ProxyModel
+from lotus.vector_store import FaissVS
 
 gpt_4o_mini = LM("gpt-4o-mini")
 gpt_4o = LM("gpt-4o")
 rm = LiteLLMRM(model="text-embedding-3-small")
+vs = FaissVS()
 
-lotus.settings.configure(lm=gpt_4o, helper_lm=gpt_4o_mini, rm=rm)
+lotus.settings.configure(lm=gpt_4o, helper_lm=gpt_4o_mini, rm=rm, vs=vs)
 data = {
     "Course Name": [
         "Probability and Random Processes",
