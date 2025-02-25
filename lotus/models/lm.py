@@ -229,27 +229,43 @@ class LM:
     ) -> LogprobsForFilterCascade:
         # Get base cascade format first
         base_cascade = self.format_logprobs_for_cascade(logprobs)
-        all_true_probs = []
+        all_true_probs: list[float] = []
 
         def get_normalized_true_prob(token_probs: dict[str, float]) -> float | None:
-            if "True" in token_probs and "False" in token_probs:
-                true_prob = token_probs["True"]
-                false_prob = token_probs["False"]
+            # Normalize keys by converting to lowercase and stripping whitespace
+            # Take the max probability for each key (e.g. True and true both map to "true" so we take the max of the two)
+            normalized_probs: dict[str, float] = {}
+            for k, v in token_probs.items():
+                normalized_key = k.lower().strip()
+                normalized_probs[normalized_key] = max(v, normalized_probs.get(normalized_key, float("-inf")))
+
+            # Look for true/false in normalized keys
+            if "true" in normalized_probs and "false" in normalized_probs:
+                true_prob = normalized_probs["true"]
+                false_prob = normalized_probs["false"]
                 return true_prob / (true_prob + false_prob)
             return None
 
-        # Get true probabilities for filter cascade
-        for resp_idx, response_logprobs in enumerate(logprobs):
-            true_prob = None
-            for logprob in response_logprobs:
-                token_probs = {top.token: np.exp(top.logprob) for top in logprob.top_logprobs}
-                true_prob = get_normalized_true_prob(token_probs)
-                if true_prob is not None:
-                    break
+        for response_logprobs in logprobs:
+            true_prob: float = 1  # Default if no true/false token found
 
-            # Default to 1 if "True" in tokens, 0 if not
-            if true_prob is None:
-                true_prob = 1 if "True" in base_cascade.tokens[resp_idx] else 0
+            # Find last true/false token by normalizing all tokens and searching in reverse
+            cleaned_tokens = [logprob.token.lower().strip() for logprob in response_logprobs]
+            true_false_indices = [i for i, token in enumerate(cleaned_tokens) if token in ["true", "false"]]
+
+            if true_false_indices:
+                last_true_false_idx = true_false_indices[-1]
+                logprob = response_logprobs[last_true_false_idx]
+                cleaned_token = cleaned_tokens[last_true_false_idx]
+
+                token_probs = {top.token: np.exp(top.logprob) for top in logprob.top_logprobs}
+                normalized_prob = get_normalized_true_prob(token_probs)
+
+                # Fall back to binary true/false if normalization fails
+                if normalized_prob is None:
+                    true_prob = 1 if cleaned_token == "true" else 0
+                else:
+                    true_prob = normalized_prob
 
             all_true_probs.append(true_prob)
 
