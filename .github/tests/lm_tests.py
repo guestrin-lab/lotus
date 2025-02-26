@@ -312,6 +312,178 @@ def test_filter_operation_cot_fewshot_no_reasoning(setup_models, model):
     assert filtered_df.equals(expected_df)
 
 
+@pytest.mark.parametrize("model", get_enabled("gpt-4o-mini", "ollama/llama3.1"))
+def test_filter_operation_cot(setup_models, model):
+    lm = setup_models[model]
+    lotus.settings.configure(lm=lm)
+
+    # Test filter operation on an easy dataframe
+    data = {
+        "Text": [
+            "I had two apples, then I gave away one",
+            "My friend gave me an apple",
+            "I gave away both of my apples",
+            "I gave away my apple, then a friend gave me his apple, then I threw my apple away",
+        ]
+    }
+    df = pd.DataFrame(data)
+    user_instruction = "{Text} I have at least one apple"
+    filtered_df = df.sem_filter(user_instruction, strategy="cot")
+    expected_df = pd.DataFrame({"Text": ["I had two apples, then I gave away one", "My friend gave me an apple"]})
+    assert filtered_df.equals(expected_df)
+
+
+@pytest.mark.parametrize("model", get_enabled("gpt-4o-mini", "ollama/llama3.1"))
+def test_filter_operation_cot_fewshot(setup_models, model):
+    lm = setup_models[model]
+    lotus.settings.configure(lm=lm)
+
+    # Test filter operation on an easy dataframe
+    data = {
+        "Sequence": [
+            "Five, Four, Three",
+            "A, B, C",
+            "Pond, Lake, Ocean",
+        ]
+    }
+    df = pd.DataFrame(data)
+    examples = {
+        "Sequence": ["1, 2, 3", "penny, nickel, dime, quarter", "villiage, town, city"],
+        "Answer": [True, True, True],
+        "Reasoning": [
+            "1, 2, 3 is an increasing sequence of numbers",
+            "penny, nickel, dime, quarter is an increasing sequence of coins",
+            "villiage, town, city is an increasing sequence of settlements",
+        ],
+    }
+    examples_df = pd.DataFrame(examples)
+
+    user_instruction = "{Sequence} is increasing"
+    filtered_df = df.sem_filter(
+        user_instruction,
+        strategy="cot",
+        examples=examples_df,
+        additional_cot_instructions="Assume the most typical or logical case.",
+    )
+    expected_df = pd.DataFrame(
+        {
+            "Sequence": [
+                "A, B, C",
+                "Pond, Lake, Ocean",
+            ]
+        },
+        index=[1, 2],
+    )
+    assert filtered_df.equals(expected_df)
+
+
+@pytest.mark.parametrize("model", get_enabled("gpt-4o-mini", "ollama/llama3.1"))
+def test_filter_operation_cot_fewshot_no_reasoning(setup_models, model):
+    lm = setup_models[model]
+    lotus.settings.configure(lm=lm)
+
+    # Test filter operation on an easy dataframe
+    data = {
+        "Sequence": [
+            "Five, Four, Three",
+            "A, B, C",
+            "Pond, Lake, Ocean",
+        ]
+    }
+    df = pd.DataFrame(data)
+    examples = {
+        "Sequence": ["1, 2, 3", "penny, nickel, dime, quarter", "villiage, town, city"],
+        "Answer": [True, True, True],
+    }
+    examples_df = pd.DataFrame(examples)
+
+    user_instruction = "{Sequence} is increasing"
+    filtered_df = df.sem_filter(user_instruction, strategy="cot", examples=examples_df)
+    expected_df = pd.DataFrame(
+        {
+            "Sequence": [
+                "A, B, C",
+                "Pond, Lake, Ocean",
+            ]
+        },
+        index=[1, 2],
+    )
+    assert filtered_df.equals(expected_df)
+
+@pytest.mark.parametrize("model", get_enabled("gpt-4o-mini", "ollama/llama3.1"))
+def test_map_operation_cot(setup_models, model):
+    lm = setup_models[model]
+    lotus.settings.configure(lm=lm)
+
+    # Test filter operation on an easy dataframe
+    data = {
+        "Sequence": [
+            "Alpha, Bravo, Charlie",
+            "One, Two, Three",
+            "Triangle, Square, Pentagon",
+        ]
+    }
+    df = pd.DataFrame(data)
+    user_instruction = "What should be the next item in the sequence: {Sequence}"
+    mapped_df = df.sem_map(user_instruction, strategy="cot")
+    expected_df = pd.DataFrame({"_map": ["Delta", "Four", "Hexagon"]})
+    assert mapped_df["_map"].equals(expected_df["_map"])
+
+
+@pytest.mark.parametrize("model", get_enabled("gpt-4o-mini", "ollama/llama3.1"))
+def test_map_operation_cot_fewshot(setup_models, model):
+    lm = setup_models[model]
+    lotus.settings.configure(lm=lm)
+
+    # Test filter operation on an easy dataframe
+    data = {
+        "Sequence": [
+            "Alpha, Bravo, Charlie",
+            "One, Two, Three",
+            "Triangle, Square, Pentagon",
+        ]
+    }
+    df = pd.DataFrame(data)
+    examples = {
+        "Sequence": ["A, B, C", "Kindergarten, First Grade, Second Grade"],
+        "Answer": ["D", "Third Grade"],
+        "Reasoning": [
+            "D is the next letter in the alphabet after C",
+            "Third Grade is the next grade after Second Grade",
+        ],
+    }
+    examples_df = pd.DataFrame(examples)
+    user_instruction = "What should be the next item in the sequence: {Sequence}"
+    mapped_df = df.sem_map(user_instruction, strategy="cot", examples=examples_df)
+    expected_df = pd.DataFrame({"_map": ["Delta", "Four", "Hexagon"]})
+    assert mapped_df["_map"].equals(expected_df["_map"])
+
+
+@pytest.mark.parametrize("model", get_enabled("gpt-4o-mini", "ollama/llama3.1"))
+def test_map_operation_cot_fewshot_no_reasoning(setup_models, model):
+    lm = setup_models[model]
+    lotus.settings.configure(lm=lm)
+
+    # Test filter operation on an easy dataframe
+    data = {
+        "Sequence": [
+            "Alpha, Bravo, Charlie",
+            "One, Two, Three",
+            "Triangle, Square, Pentagon",
+        ]
+    }
+    df = pd.DataFrame(data)
+    examples = {
+        "Sequence": ["A, B, C", "Kindergarten, First Grade, Second Grade"],
+        "Answer": ["D", "Third Grade"],
+    }
+    examples_df = pd.DataFrame(examples)
+    user_instruction = "What should be the next item in the sequence: {Sequence}"
+    mapped_df = df.sem_map(user_instruction, strategy="cot", examples=examples_df)
+    expected_df = pd.DataFrame({"_map": ["Delta", "Four", "Hexagon"]})
+    assert mapped_df["_map"].equals(expected_df["_map"])
+
+
 ################################################################################
 # Cascade tests
 ################################################################################
