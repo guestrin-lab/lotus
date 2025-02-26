@@ -46,8 +46,12 @@ serpapi = [
 arxiv = [
     "arxiv",
 ]
-pdf_parser = [
+file_extractor = [
+    "llama-index",
     "pymupdf",
+    "docx2txt",
+    "python-pptx",
+    "python-magic"
 ]
 weaviate = [
     "weaviate-client",

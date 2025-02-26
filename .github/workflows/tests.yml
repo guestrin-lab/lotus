@@ -60,7 +60,7 @@ jobs:
           - test-suite: utility_operators
             file: .github/tests/utility_operators_tests.py
             timeout: 10
-            extra-deps: pymupdf
+            extra-deps: pymupdf llama-index docx2txt python-pptx python-magic
           - test-suite: cache
             file: .github/tests/cache_tests.py
             timeout: 10

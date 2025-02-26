@@ -116,8 +116,8 @@ class WeaviateVS(VS):
             all_indices.append(indices)
 
         return RMOutput(
-            distances=np.array(all_distances, dtype=np.float32).tolist(),
-            indices=np.array(all_indices, dtype=np.int64).tolist(),
+            distances=np.array(all_distances, dtype=np.float32).tolist(),  # type: ignore
+            indices=np.array(all_indices, dtype=np.int64).tolist(),  # type: ignore
         )
 
     def get_vectors_from_index(self, index_dir: str, ids: list[Any]) -> NDArray[np.float64]:
