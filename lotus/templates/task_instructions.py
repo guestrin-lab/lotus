@@ -194,6 +194,42 @@ def map_formatter_zs_cot(
     return messages
 
 
+def deepseek_map_formatter(
+    multimodal_data: dict[str, Any],
+    user_instruction: str,
+    examples_multimodal_data: list[dict[str, Any]] | None = None,
+    examples_answer: list[str] | None = None,
+    cot_reasoning: list[str] | None = None,
+    strategy: str | None = None,
+) -> list[dict[str, str]]:
+    sys_instruction = (
+        "The user will provide an instruction and some relevant context.\n"
+        "Your job is to answer the user's instruction given the context."
+        "You must put your reasoning inside the <think></think> tags, then provide your final answer after the </think> tag with the format: Answer: your answer."
+    )
+    messages = [
+        {"role": "system", "content": sys_instruction},
+    ]
+
+    if examples_multimodal_data and examples_answer:
+        for idx in range(len(examples_multimodal_data)):
+            example_data = examples_multimodal_data[idx]
+            example_answer = examples_answer[idx]
+
+            if cot_reasoning and idx < len(cot_reasoning):
+                example_content = f"<think>{cot_reasoning[idx]}</think>\n: {example_answer}"
+
+            messages.extend(
+                [
+                    user_message_formatter(example_data, f"Instruction: {user_instruction}"),
+                    {"role": "assistant", "content": example_content},
+                ]
+            )
+
+    messages.append(user_message_formatter(multimodal_data, f"Instruction: {user_instruction}"))
+    return messages
+
+
 def map_formatter(
     multimodal_data: dict[str, Any],
     user_instruction: str,
@@ -229,6 +265,35 @@ def map_formatter(
             )
 
     messages.append(user_message_formatter(multimodal_data, f"Instruction: {user_instruction}"))
+    return messages
+
+
+def deepseek_extract_cot_formatter(
+    multimodal_data: dict[str, Any], output_cols: dict[str, str | None], extract_quotes: bool = True
+) -> list[dict[str, str]]:
+    output_col_names = list(output_cols.keys())
+    output_cols_with_desc = {col: col if desc is None else desc for col, desc in output_cols.items()}
+
+    all_fields = output_col_names
+    if extract_quotes:
+        quote_fields = [f"{col}_quote" for col in output_col_names]
+        all_fields += quote_fields
+
+    fields_str = ", ".join(all_fields)
+
+    sys_instruction = (
+        "The user will provide the columns that need to be extracted and some relevant context.\n"
+        "First you will reason and put your reasoning inside the <think></think> tags.\n"
+        f"Then your next job is to extract these columns and provide only a concise value for each field "
+        f"and the corresponding full quote for each field in the '{', '.join([f'{col}_quote' for col in output_col_names])}' fields.\n"
+        f"Here is a description of each field: {output_cols_with_desc}\n"
+        f"The answer should be valid JSON format with the following fields: {fields_str}.\n"
+    )
+
+    messages = [
+        {"role": "system", "content": sys_instruction},
+        user_message_formatter(multimodal_data, "Extract the rquired fields"),
+    ]
     return messages
 
 

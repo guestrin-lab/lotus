@@ -28,6 +28,57 @@ def cot_postprocessor(llm_answers: list[str]):
     return outputs, explanations
 
 
+def deepseek_cot_postprocessor(llm_answers: list[str], for_extract: bool = False):
+    """
+    Postprocess outputs from DeepSeek models with CoT reasoning.
+
+    Args:
+        llm_answers (list[str]): The list of llm answers from DeepSeek.
+
+    Returns:
+        Tuple: (outputs, explanations)
+    """
+    outputs: list[str | None] = []
+    explanations: list[str | None] = []
+
+    for llm_answer in llm_answers:
+        think_start = llm_answer.find("<think>")
+        think_end = llm_answer.find("</think>")
+
+        answer_start = llm_answer.find("Answer:")
+
+        if think_start != -1 and think_end != -1:
+            # Extract the reasoning between the <think> tags
+            reasoning = llm_answer[think_start + len("<think>") : think_end].strip()
+            answer = llm_answer[answer_start + len("Answer:") :].strip()
+
+            answer = answer.strip()
+
+            # If ther is nothing after </think> tag, check if the answer is at the beginning
+            if not answer and think_start > 0:
+                answer = llm_answer[:think_start].strip()
+
+        else:
+            reasoning = ""
+            answer = llm_answer.strip()
+
+        explanations.append(reasoning)
+
+        if for_extract:
+            for llm_answer in llm_answers:
+                try:
+                    json_obj = json.loads(llm_answer)
+                except json.JSONDecodeError:
+                    lotus.logger.info(f"\t Failed to parse: {llm_answer}")
+                    json_obj = {}
+            json_obj = {key: str(value) for key, value in json_obj.items()}
+            outputs.append(json_obj)
+
+        outputs.append(answer)
+
+    return outputs, explanations
+
+
 def map_postprocess_cot(llm_answers: list[str]) -> SemanticMapPostprocessOutput:
     """
     Postprocess the output of the map operator with CoT reasoning.
@@ -57,26 +108,35 @@ def map_postprocess_cot(llm_answers: list[str]) -> SemanticMapPostprocessOutput:
     return SemanticMapPostprocessOutput(raw_outputs=llm_answers, outputs=outputs, explanations=explanations)
 
 
-def map_postprocess(llm_answers: list[str], cot_reasoning: bool = False) -> SemanticMapPostprocessOutput:
+def map_postprocess(
+    llm_answers: list[str], cot_reasoning: bool = False, model_type: str = "default"
+) -> SemanticMapPostprocessOutput:
     """
     Postprocess the output of the map operator.
 
     Args:
         llm_answers (list[str]): The list of llm answers.
         cot_reasoning (bool): Whether there is CoT reasoning.
+        model_type (str): The model type. ("defualt", "deepseek")
 
     Returns:
         SemanticMapPostprocessOutput
     """
     if cot_reasoning:
-        return map_postprocess_cot(llm_answers)
+        if model_type == "deepseek":
+            deepseek_outputs, deepseek_explanations = deepseek_cot_postprocessor(llm_answers)
+            return SemanticMapPostprocessOutput(
+                raw_outputs=llm_answers, outputs=deepseek_outputs, explanations=deepseek_explanations
+            )
+        else:
+            return map_postprocess_cot(llm_answers)
 
     outputs: list[str] = llm_answers
     explanations: list[str | None] = [None] * len(llm_answers)
     return SemanticMapPostprocessOutput(raw_outputs=llm_answers, outputs=outputs, explanations=explanations)
 
 
-def extract_postprocess(llm_answers: list[str]) -> SemanticExtractPostprocessOutput:
+def extract_postprocess(llm_answers: list[str], cot_reasoning: bool = False) -> SemanticExtractPostprocessOutput:
     """
     Postprocess the output of the extract operator to extract the schema.
 
@@ -87,6 +147,14 @@ def extract_postprocess(llm_answers: list[str]) -> SemanticExtractPostprocessOut
         SemanticExtractPostprocessOutput
     """
     extract_data = []
+    explanations: list[str | None] = [None] * len(llm_answers)
+
+    if cot_reasoning:
+        deepseek_outputs, deepseek_explanations = deepseek_cot_postprocessor(llm_answers, for_extract=True)
+        return SemanticExtractPostprocessOutput(
+            raw_outputs=llm_answers, outputs=deepseek_outputs, explanations=deepseek_explanations
+        )
+
     for llm_answer in llm_answers:
         try:
             output = json.loads(llm_answer)
@@ -97,7 +165,7 @@ def extract_postprocess(llm_answers: list[str]) -> SemanticExtractPostprocessOut
         output = {key: str(value) for key, value in output.items()}
         extract_data.append(output)
 
-    return SemanticExtractPostprocessOutput(raw_outputs=llm_answers, outputs=extract_data)
+    return SemanticExtractPostprocessOutput(raw_outputs=llm_answers, outputs=extract_data, explanations=explanations)
 
 
 def filter_postprocess(

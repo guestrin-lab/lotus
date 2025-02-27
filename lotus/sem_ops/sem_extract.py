@@ -17,9 +17,11 @@ def sem_extract(
     model: LM,
     output_cols: dict[str, str | None],
     extract_quotes: bool = False,
-    postprocessor: Callable[[list[str]], SemanticExtractPostprocessOutput] = extract_postprocess,
+    postprocessor: Callable[[list[str], bool], SemanticExtractPostprocessOutput] = extract_postprocess,
     safe_mode: bool = False,
     progress_bar_desc: str = "Extracting",
+    strategy: str | None = None,
+    return_explanations: bool = False,
 ) -> SemanticExtractOutput:
     """
     Extracts attributes and values from a list of documents using a model.
@@ -37,7 +39,10 @@ def sem_extract(
     # prepare model inputs
     inputs = []
     for doc in docs:
-        prompt = task_instructions.extract_formatter(doc, output_cols, extract_quotes)
+        if return_explanations:
+            prompt = task_instructions.deepseek_extract_cot_formatter(doc, output_cols, extract_quotes)
+        else:
+            prompt = task_instructions.extract_formatter(doc, output_cols, extract_quotes)
         lotus.logger.debug(f"input to model: {prompt}")
         lotus.logger.debug(f"inputs content to model: {[x.get('content') for x in prompt]}")
         inputs.append(prompt)
@@ -52,13 +57,18 @@ def sem_extract(
     lm_output: LMOutput = model(inputs, response_format={"type": "json_object"}, progress_bar_desc=progress_bar_desc)
 
     # post process results
-    postprocess_output = postprocessor(lm_output.outputs)
+    postprocess_output = postprocessor(lm_output.outputs, strategy in ["zs-cot"])
     lotus.logger.debug(f"raw_outputs: {lm_output.outputs}")
     lotus.logger.debug(f"outputs: {postprocess_output.outputs}")
+    lotus.logger.debug(f"explanations: {postprocess_output.explanations}")
     if safe_mode:
         model.print_total_usage()
 
-    return SemanticExtractOutput(raw_outputs=postprocess_output.raw_outputs, outputs=postprocess_output.outputs)
+    return SemanticExtractOutput(
+        raw_outputs=postprocess_output.raw_outputs,
+        outputs=postprocess_output.outputs,
+        explanations=postprocess_output.explanations,
+    )
 
 
 @pd.api.extensions.register_dataframe_accessor("sem_extract")
@@ -78,10 +88,12 @@ class SemExtractDataFrame:
         input_cols: list[str],
         output_cols: dict[str, str | None],
         extract_quotes: bool = False,
-        postprocessor: Callable[[list[str]], SemanticExtractPostprocessOutput] = extract_postprocess,
+        postprocessor: Callable[[list[str], bool], SemanticExtractPostprocessOutput] = extract_postprocess,
         return_raw_outputs: bool = False,
         safe_mode: bool = False,
         progress_bar_desc: str = "Extracting",
+        strategy: str | None = None,
+        return_explanations: bool = False,
     ) -> pd.DataFrame:
         """
         Extracts the attributes and values of a dataframe.
@@ -116,6 +128,8 @@ class SemExtractDataFrame:
             postprocessor=postprocessor,
             safe_mode=safe_mode,
             progress_bar_desc=progress_bar_desc,
+            strategy=strategy,
+            return_explanations=return_explanations,
         )
 
         new_df = self._obj.copy()
@@ -130,5 +144,8 @@ class SemExtractDataFrame:
 
         if return_raw_outputs:
             new_df["raw_output"] = out.raw_outputs
+
+        if return_explanations:
+            new_df["explanation"] = out.explanations
 
         return new_df
