@@ -9,25 +9,25 @@ from lotus.types import SerializationFormat
 
 
 def cot_formatter(reasoning, answer):
-    return f"""Reasoning:\n{reasoning}\n\nAnswer: {answer}"""
+    return f"""\n\nReasoning:\n{reasoning}\n\nAnswer: {answer}"""
 
 
 def answer_only_formatter(answer):
-    return f"""Answer: {answer}"""
+    return f"""\n\nAnswer: {answer}"""
 
 
 def cot_prompt_formatter(reasoning_instructions: str = "", answer_instructions: str = "") -> str:
-    reasoning_instructions = f"<Your reasoning here. {reasoning_instructions}>"
-    answer_instructions = f"<Your answer here. {answer_instructions}>"
-    return f"""Let's think step by step. Use the following format to provide your answer:
-        {cot_formatter(reasoning_instructions, answer_instructions)}
+    reasoning_placeholder = f"<Your reasoning here. {reasoning_instructions}>"
+    answer_placeholder = f"<Your answer here. {answer_instructions}>"
+    return f"""\n\nLet's think step by step. Use the following format to provide your answer:
+        {cot_formatter(reasoning_placeholder, answer_placeholder)}
         """
 
 
 def non_cot_prompt_formatter(answer_instructions: str = "") -> str:
-    answer_instructions = f"<Your answer here. {answer_instructions}>"
-    return f"""Use the following format to provide your answer:
-            {answer_only_formatter(answer_instructions)}
+    answer_placeholder = f"<Your answer here. {answer_instructions}>"
+    return f"""\n\nUse the following format to provide your answer:
+            {answer_only_formatter(answer_placeholder)}
             """
 
 
@@ -143,57 +143,6 @@ def filter_formatter(
     return messages
 
 
-def map_formatter_cot(
-    multimodal_data: dict[str, Any],
-    user_instruction: str,
-    examples_multimodal_data: list[dict[str, Any]],
-    examples_answer: list[str],
-    cot_reasoning: list[str],
-) -> list[dict[str, str]]:
-    sys_instruction = (
-        "The user will provide an instruction and some relevant context.\n"
-        "Your job is to answer the user's instruction given the context."
-        "You must give your reasoning and then your final answer"
-    )
-    messages = [
-        {"role": "system", "content": sys_instruction},
-    ]
-
-    for idx in range(len(examples_multimodal_data)):
-        ex_df_txt = examples_multimodal_data[idx]
-        ex_ans = examples_answer[idx]
-        cot = cot_reasoning[idx]
-        messages.extend(
-            [
-                user_message_formatter(ex_df_txt, f"Instruction: {user_instruction}"),
-                {
-                    "role": "assistant",
-                    "content": f"Reasoning:\n{cot}\n\nAnswer: {ex_ans}",
-                },
-            ]
-        )
-
-    messages.append(user_message_formatter(multimodal_data, f"Instruction: {user_instruction}"))
-    return messages
-
-
-def map_formatter_zs_cot(
-    multimodal_data: dict[str, Any],
-    user_instruction: str,
-) -> list[dict[str, str]]:
-    sys_instruction = (
-        "The user will provide an instruction and some relevant context.\n"
-        "Your job is to answer the user's instruction given the context."
-        'First give your reasoning. Then you MUST end your output with "Answer: your answer"'
-    )
-    messages = [
-        {"role": "system", "content": sys_instruction},
-    ]
-
-    messages.append(user_message_formatter(multimodal_data, f"Instruction: {user_instruction}"))
-    return messages
-
-
 def map_formatter(
     multimodal_data: dict[str, Any],
     user_instruction: str,
@@ -201,30 +150,57 @@ def map_formatter(
     examples_answer: list[str] | None = None,
     cot_reasoning: list[str] | None = None,
     strategy: str | None = None,
+    reasoning_instructions: str = "",
 ) -> list[dict[str, str]]:
-    if cot_reasoning:
-        assert examples_multimodal_data is not None and examples_answer is not None
-        return map_formatter_cot(
-            multimodal_data, user_instruction, examples_multimodal_data, examples_answer, cot_reasoning
-        )
-    elif strategy == "zs-cot":
-        return map_formatter_zs_cot(multimodal_data, user_instruction)
+    """
+    Creates a map formatter with chain-of-thought reasoning.
+    Supports both few-shot CoT (with examples) and zero-shot CoT.
+    """
+    sys_instruction = """The user will provide an instruction and some relevant context.
+    Your job is to answer the user's instruction given the context.
+    """
 
-    sys_instruction = (
-        "The user will provide an instruction and some relevant context.\n"
-        "Your job is to answer the user's instruction given the context."
-    )
+    if strategy == "cot":
+        sys_instruction += cot_prompt_formatter(
+            reasoning_instructions=reasoning_instructions,
+        )
+    else:
+        sys_instruction += non_cot_prompt_formatter()
+
     messages = [
         {"role": "system", "content": sys_instruction},
     ]
 
     if examples_multimodal_data:
         assert examples_answer is not None
-        for ex_df_txt, ex_ans in zip(examples_multimodal_data, examples_answer):
+        assert isinstance(examples_multimodal_data, list) and isinstance(examples_answer, list)
+        assert len(examples_multimodal_data) == len(examples_answer)
+
+        if cot_reasoning:
+            # If CoT reasoning examples are provided, use them
+            assert isinstance(cot_reasoning, list)
+            assert len(examples_multimodal_data) == len(examples_answer) == len(cot_reasoning)
+
+        for idx in range(len(examples_multimodal_data)):
+            ex_df_txt = examples_multimodal_data[idx]
+            ex_ans = examples_answer[idx]
+            content = ""
+
+            # If CoT reasoning is provided, use it. Otherwise, supply a default reasoning
+            if cot_reasoning:
+                content = cot_formatter(cot_reasoning[idx], str(ex_ans))
+            elif strategy == "cot":
+                content = cot_formatter("Reasoning omitted", str(ex_ans))
+            else:
+                content = answer_only_formatter(str(ex_ans))
+
             messages.extend(
                 [
                     user_message_formatter(ex_df_txt, f"Instruction: {user_instruction}"),
-                    {"role": "assistant", "content": str(ex_ans)},
+                    {
+                        "role": "assistant",
+                        "content": content,
+                    },
                 ]
             )
 
