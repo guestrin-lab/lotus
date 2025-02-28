@@ -74,4 +74,4 @@ class FaissVS(VS):
             # Otherwise, search against the entire index.
             distances, indices = self.faiss_index.search(query_vectors, K)
 
-        return RMOutput(distances=distances, indices=indices)
+        return RMOutput(distances=distances, indices=indices)  # type: ignore

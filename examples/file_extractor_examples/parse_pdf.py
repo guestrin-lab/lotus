@@ -1,7 +1,7 @@
 import pathlib
 
 import lotus
-from lotus import parse_pdf
+from lotus.file_extractors import DirectoryReader
 from lotus.models import LM, LiteLLMRM
 from lotus.types import CascadeArgs, ProxyModel
 
@@ -13,7 +13,7 @@ lotus.settings.configure(lm=gpt_4o, helper_lm=gpt_4o_mini, rm=rm)
 
 # Load the PDF file
 pdf_path = pathlib.Path(__file__).parent / "Poems on Love and Life.pdf"
-df = parse_pdf(pdf_path, per_page=True)
+df = DirectoryReader().add(pdf_path).to_df(per_page=True)
 
 user_instruction = "give me all the poems where {content} is motivating"
 cascade_args = CascadeArgs(
