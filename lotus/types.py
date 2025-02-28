@@ -84,12 +84,14 @@ class SemanticMapOutput:
 class SemanticExtractPostprocessOutput:
     raw_outputs: list[str]
     outputs: list[dict[str, str]]
+    explanations: list[str | None]
 
 
 @dataclass
 class SemanticExtractOutput:
     raw_outputs: list[str]
     outputs: list[dict[str, str]]
+    explanations: list[str | None]
 
 
 @dataclass
