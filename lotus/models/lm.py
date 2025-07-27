@@ -12,6 +12,7 @@ from litellm.exceptions import AuthenticationError
 from litellm.types.utils import ChatCompletionTokenLogprob, Choices, ModelResponse
 from litellm.utils import token_counter
 from openai._exceptions import OpenAIError
+from pydantic import BaseModel
 from tokenizers import Tokenizer
 from tqdm import tqdm
 
@@ -130,12 +131,36 @@ class LM:
             if lotus.settings.enable_cache
             else uncached_responses
         )
-        outputs = [self._get_top_choice(resp) for resp in all_responses]
+        outputs: list[str] = [self._get_top_choice(resp) for resp in all_responses]
         logprobs = (
             [self._get_top_choice_logprobs(resp) for resp in all_responses] if all_kwargs.get("logprobs") else None
         )
 
         return LMOutput(outputs=outputs, logprobs=logprobs)
+
+    def get_completion(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        show_progress_bar: bool = True,
+        progress_bar_desc: str = "Processing uncached messages",
+        response_format: BaseModel | None = None,
+        **kwargs: dict[str, Any],
+    ) -> str:
+        messages = [
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+        ]
+        output = self(
+            messages,
+            show_progress_bar=show_progress_bar,
+            progress_bar_desc=progress_bar_desc,
+            response_format=response_format,  # type: ignore
+            **kwargs,
+        ).outputs[0]
+        if response_format:
+            assert isinstance(output, BaseModel)
+            return response_format.model_validate_json(output)
+        return output
 
     def _process_uncached_messages(self, uncached_data, all_kwargs, show_progress_bar, progress_bar_desc):
         """Processes uncached messages in batches and returns responses."""
