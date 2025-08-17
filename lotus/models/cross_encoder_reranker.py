@@ -1,4 +1,3 @@
-from sentence_transformers import CrossEncoder
 
 from lotus.models.reranker import Reranker
 from lotus.types import RerankerOutput
@@ -33,7 +32,19 @@ class CrossEncoderReranker(Reranker):
             max_batch_size: Maximum batch size for reranking requests. Defaults to 64.
         """
         self.max_batch_size: int = max_batch_size
-        self.model = CrossEncoder(model, device=device)  # type: ignore # CrossEncoder has wrong type stubs
+        self._model_name = model
+        self._device = device
+        self._model = None  # Initialize model as None for lazy loading
+
+    @property
+    def model(self):
+        """Lazy load the model when it's first accessed."""
+        if self._model is None:
+            # Only import CrossEncoder when needed
+            from sentence_transformers import CrossEncoder
+
+            self._model = CrossEncoder(self._model_name, device=self._device)  # type: ignore # CrossEncoder has wrong type stubs
+        return self._model
 
     def __call__(self, query: str, docs: list[str], K: int) -> RerankerOutput:
         """
