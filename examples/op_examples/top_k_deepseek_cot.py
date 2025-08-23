@@ -2,7 +2,7 @@ import pandas as pd
 
 import lotus
 from lotus.models import LM
-from lotus.types import ReasoningStrategy
+from lotus.types import PromptStrategy
 
 lm = LM(model="ollama/deepseek-r1:7b", temperature=0.6)
 lotus.settings.configure(lm=lm)
@@ -24,7 +24,7 @@ for method in ["quick", "heap", "naive"]:
         "{Review} suggests that the user would recommend the product to others",
         K=2,
         method=method,
-        strategy=ReasoningStrategy.ZS_COT,
+        prompt_strategy=PromptStrategy(cot=True),
         return_stats=True,
         return_explanations=True,
     )

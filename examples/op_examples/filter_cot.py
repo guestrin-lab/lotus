@@ -2,7 +2,7 @@ import pandas as pd
 
 import lotus
 from lotus.models import LM
-from lotus.types import ReasoningStrategy
+from lotus.types import PromptStrategy
 
 lm = LM(model="gpt-4o-mini")
 
@@ -20,9 +20,9 @@ data = {
 }
 df = pd.DataFrame(data)
 user_instruction = "{Text} I have at least one apple"
-# filtered_df = df.sem_filter(user_instruction, strategy="cot", return_all=True)
+# Old way: filtered_df = df.sem_filter(user_instruction, strategy="cot", return_all=True)
 filtered_df = df.sem_filter(
-    user_instruction, strategy=ReasoningStrategy.ZS_COT, return_all=True, return_explanations=True
+    user_instruction, prompt_strategy=PromptStrategy(cot=True), return_all=True, return_explanations=True
 )  # uncomment to see reasoning chains
 
 print(filtered_df)

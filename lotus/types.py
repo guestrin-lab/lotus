@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from typing import Any
 
 import pandas as pd
@@ -213,10 +213,42 @@ class LotusUsageLimitException(LotusException):
 
 
 ################################################################################
-# Reasoning Strategy
+# Prompt Strategy
 ################################################################################
-class ReasoningStrategy(Enum):
-    DEFAULT = auto()
-    COT = auto()
-    ZS_COT = auto()
-    FEW_SHOT = auto()
+@dataclass
+class PromptStrategy:
+    """
+    Configurable prompt strategy for semantic operations.
+
+    This class encapsulates various prompting techniques including chain-of-thought
+    reasoning, demonstrations, and bootstrapping configurations.
+
+    Args:
+        cot (bool): Whether to use chain-of-thought reasoning. Defaults to False.
+        dems (pd.DataFrame | str | None): Demonstrations to use. Can be:
+            - pd.DataFrame: User-provided examples with Answer column
+            - "auto": Automatically bootstrap demonstrations
+            - None: No demonstrations
+        max_dems (int): Maximum number of demonstrations to use. Defaults to 3.
+        teacher_lm: Language model to use for bootstrapping demonstrations.
+            If None, uses the main model. Defaults to None.
+
+    Example:
+        >>> # Chain-of-thought with user-provided demonstrations
+        >>> strat = PromptStrategy(cot=True, dems=examples_df)
+        >>> df.sem_filter(user_instruction, prompt_strategy=strat)
+
+        >>> # Auto-bootstrap demonstrations with CoT
+        >>> strat = PromptStrategy(
+        ...     cot=True,
+        ...     dems="auto",
+        ...     max_dems=2,
+        ...     teacher_lm=lotus.models.LM(model="gpt-4o-mini")
+        ... )
+        >>> df.sem_filter(user_instruction, prompt_strategy=strat)
+    """
+
+    cot: bool = False
+    dems: pd.DataFrame | str | None = None
+    max_dems: int = 3
+    teacher_lm: Any = None  # lotus.models.LM type, but avoiding circular import

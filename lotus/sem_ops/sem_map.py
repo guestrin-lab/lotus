@@ -5,7 +5,12 @@ import pandas as pd
 import lotus
 from lotus.cache import operator_cache
 from lotus.templates import task_instructions
-from lotus.types import LMOutput, ReasoningStrategy, SemanticMapOutput, SemanticMapPostprocessOutput
+from lotus.types import (
+    LMOutput,
+    PromptStrategy,
+    SemanticMapOutput,
+    SemanticMapPostprocessOutput,
+)
 from lotus.utils import show_safe_mode
 
 from .postprocessors import map_postprocess
@@ -19,7 +24,7 @@ def sem_map(
     examples_multimodal_data: list[dict[str, Any]] | None = None,
     examples_answers: list[str] | None = None,
     cot_reasoning: list[str] | None = None,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
     safe_mode: bool = False,
     progress_bar_desc: str = "Mapping",
 ) -> SemanticMapOutput:
@@ -50,8 +55,8 @@ def sem_map(
         cot_reasoning (list[str] | None, optional): Chain-of-thought reasoning
             for the example documents. Used when strategy includes COT reasoning.
             Defaults to None.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy to use.
-            Can be None, COT, or ZS_COT. Defaults to None.
+        prompt_strategy (PromptStrategy | None, optional): The prompt strategy to use.
+            Configures chain-of-thought, demonstrations, and bootstrapping. Defaults to None.
         safe_mode (bool, optional): Whether to enable safe mode with cost estimation.
             Defaults to False.
         progress_bar_desc (str, optional): Description for the progress bar.
@@ -76,7 +81,13 @@ def sem_map(
     inputs = []
     for doc in docs:
         prompt = lotus.templates.task_instructions.map_formatter(
-            model, doc, user_instruction, examples_multimodal_data, examples_answers, cot_reasoning, strategy=strategy
+            model,
+            doc,
+            user_instruction,
+            examples_multimodal_data,
+            examples_answers,
+            cot_reasoning,
+            prompt_strategy=prompt_strategy,
         )
         lotus.logger.debug(f"input to model: {prompt}")
         lotus.logger.debug(f"inputs content to model: {[x.get('content') for x in prompt]}")
@@ -92,9 +103,7 @@ def sem_map(
     lm_output: LMOutput = model(inputs, progress_bar_desc=progress_bar_desc)
 
     # post process results
-    postprocess_output = postprocessor(
-        lm_output.outputs, model, strategy in [ReasoningStrategy.COT, ReasoningStrategy.ZS_COT]
-    )
+    postprocess_output = postprocessor(lm_output.outputs, model, prompt_strategy is not None and prompt_strategy.cot)
     lotus.logger.debug(f"raw_outputs: {lm_output.outputs}")
     lotus.logger.debug(f"outputs: {postprocess_output.outputs}")
     lotus.logger.debug(f"explanations: {postprocess_output.explanations}")
@@ -134,7 +143,7 @@ class SemMapDataframe:
         examples (pd.DataFrame | None, optional): Example DataFrame for
             few-shot learning. Should have the same column structure as the
             input DataFrame plus an "Answer" column. Defaults to None.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy
+        prompt_strategy (PromptStrategy | None, optional): The prompt strategy
             to use. Can be None, COT, or ZS_COT. Defaults to None.
         safe_mode (bool, optional): Whether to enable safe mode with cost
             estimation. Defaults to False.
@@ -167,8 +176,8 @@ class SemMapDataframe:
         1     Harry is feeling nauseous  Negative
 
         # Example 2: with zero-shot chain-of-thought (ZS-COT) reasoning
-        >>> from lotus.types import ReasoningStrategy
-        >>> df.sem_map("Label the sentiment of Harry in the {document} as positive/negative/neutral. Answer in one word.", return_explanations=True, strategy=ReasoningStrategy.ZS_COT)
+        >>> from lotus.types import PromptStrategy
+        >>> df.sem_map("Label the sentiment of Harry in the {document} as positive/negative/neutral. Answer in one word.", return_explanations=True, prompt_strategy=PromptStrategy(cot=True))
         Mapping: 100%|████████████████████████████████████████████████████████████████████ 2/2 LM calls [00:02<00:00,  1.04s/it]
         document       _map                                    explanation_map
         0  Harry is happy and love cats   positive  Reasoning: The document states that "Harry is ...
@@ -208,7 +217,7 @@ class SemMapDataframe:
         return_raw_outputs: bool = False,
         suffix: str = "_map",
         examples: pd.DataFrame | None = None,
-        strategy: ReasoningStrategy | None = None,
+        prompt_strategy: PromptStrategy | None = None,
         safe_mode: bool = False,
         progress_bar_desc: str = "Mapping",
     ) -> pd.DataFrame:
@@ -227,6 +236,7 @@ class SemMapDataframe:
         multimodal_data = task_instructions.df2multimodal_info(self._obj, col_li)
         formatted_usr_instr = lotus.nl_expression.nle2str(user_instruction, col_li)
 
+        # Handle examples and demonstrations
         examples_multimodal_data = None
         examples_answers = None
         cot_reasoning = None
@@ -236,9 +246,12 @@ class SemMapDataframe:
             examples_multimodal_data = task_instructions.df2multimodal_info(examples, col_li)
             examples_answers = examples["Answer"].tolist()
 
-            if strategy == ReasoningStrategy.COT or strategy == ReasoningStrategy.ZS_COT:
+            if prompt_strategy is not None and prompt_strategy.cot:
                 return_explanations = True
-                cot_reasoning = examples["Reasoning"].tolist()
+                if "Reasoning" in examples.columns:
+                    cot_reasoning = examples["Reasoning"].tolist()
+                else:
+                    cot_reasoning = ["Reasoning omitted"] * len(examples_answers)
 
         output = sem_map(
             multimodal_data,
@@ -248,7 +261,7 @@ class SemMapDataframe:
             examples_multimodal_data=examples_multimodal_data,
             examples_answers=examples_answers,
             cot_reasoning=cot_reasoning,
-            strategy=strategy,
+            prompt_strategy=prompt_strategy,
             safe_mode=safe_mode,
             progress_bar_desc=progress_bar_desc,
         )

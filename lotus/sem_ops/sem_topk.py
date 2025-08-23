@@ -9,7 +9,7 @@ from tqdm import tqdm
 import lotus
 from lotus.cache import operator_cache
 from lotus.templates import task_instructions
-from lotus.types import LMOutput, ReasoningStrategy, SemanticTopKOutput
+from lotus.types import LMOutput, PromptStrategy, SemanticTopKOutput
 from lotus.utils import show_safe_mode
 
 
@@ -18,7 +18,7 @@ def get_match_prompt_binary(
     doc2: dict[str, Any],
     user_instruction: str,
     model: lotus.models.LM,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
 ) -> list[dict[str, Any]]:
     """
     Generate a binary comparison prompt for two documents.
@@ -35,8 +35,8 @@ def get_match_prompt_binary(
         user_instruction (str): The natural language instruction that defines
             the comparison criteria.
         model (lotus.models.LM): The language model instance to use for comparison.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy to use.
-            Can be None, COT, or ZS_COT. Defaults to None.
+        prompt_strategy (PromptStrategy | None, optional): The reasoning strategy to use.
+            Can be None, CoT, or Demonstrations. Defaults to None.
 
     Returns:
         list[dict[str, Any]]: A list of message dictionaries formatted for the
@@ -48,7 +48,7 @@ def get_match_prompt_binary(
         >>> model = LM(model="gpt-4o")
         >>> prompt = get_match_prompt_binary(doc1, doc2, "Which is more relevant to AI?", model)
     """
-    if strategy == ReasoningStrategy.ZS_COT:
+    if prompt_strategy is not None and prompt_strategy.cot:
         sys_prompt = (
             "Your job is to to select and return the most relevant document to the user's question.\n"
             "Carefully read the user's question and the two documents provided below.\n"
@@ -69,7 +69,7 @@ def get_match_prompt_binary(
         content_text, content_image_inputs = task_instructions.context_formatter(doc)
         prompt += [{"type": "text", "text": f"\nDocument {idx+1}:\n{content_text}"}, *content_image_inputs]
 
-    if strategy == ReasoningStrategy.ZS_COT and model.is_deepseek():
+    if prompt_strategy is not None and prompt_strategy.cot and model.is_deepseek():
         deepseek_instructions = """Please think through your reasoning step by step, then provide your final answer.
         You must put your reasoning insdie the <think></think> tags, then provide your 
         final answer after the </think> tag with the format: Answer: your answer."""
@@ -133,7 +133,7 @@ def compare_batch_binary(
     pairs: list[tuple[dict[str, Any], dict[str, Any]]],
     model: lotus.models.LM,
     user_instruction: str,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
 ) -> tuple[list[bool], list[str], int]:
     """
     Compare multiple pairs of documents using binary classification.
@@ -147,7 +147,7 @@ def compare_batch_binary(
         model (lotus.models.LM): The language model instance to use for comparison.
         user_instruction (str): The natural language instruction that defines
             the comparison criteria.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy to use.
+        prompt_strategy (PromptStrategy | None, optional): The reasoning strategy to use.
             Can be None, COT, or ZS_COT. Defaults to None.
 
     Returns:
@@ -164,7 +164,9 @@ def compare_batch_binary(
     match_prompts = []
     tokens = 0
     for doc1, doc2 in pairs:
-        match_prompts.append(get_match_prompt_binary(doc1, doc2, user_instruction, strategy=strategy, model=model))
+        match_prompts.append(
+            get_match_prompt_binary(doc1, doc2, user_instruction, prompt_strategy=prompt_strategy, model=model)
+        )
         tokens += model.count_tokens(match_prompts[-1])
     lm_results: LMOutput = model(match_prompts, show_progress_bar=False)
     result_explanations = list(map(parse_ans_binary, lm_results.outputs))
@@ -178,7 +180,7 @@ def compare_batch_binary_cascade(
     model: lotus.models.LM,
     user_instruction: str,
     cascade_threshold: float,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
 ) -> tuple[list[bool], list[str], int, int, int]:
     """
     Compare multiple pairs of documents using a cascade approach.
@@ -195,7 +197,7 @@ def compare_batch_binary_cascade(
             the comparison criteria.
         cascade_threshold (float): Confidence threshold for using the large model.
             Cases below this threshold will use the helper model.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy to use.
+        prompt_strategy (PromptStrategy | None, optional): The reasoning strategy to use.
             Can be None, COT, or ZS_COT. Defaults to None.
 
     Returns:
@@ -219,7 +221,9 @@ def compare_batch_binary_cascade(
     match_prompts = []
     small_tokens = 0
     for doc1, doc2 in pairs:
-        match_prompts.append(get_match_prompt_binary(doc1, doc2, user_instruction, strategy=strategy, model=model))
+        match_prompts.append(
+            get_match_prompt_binary(doc1, doc2, user_instruction, prompt_strategy=prompt_strategy, model=model)
+        )
         small_tokens += model.count_tokens(match_prompts[-1])
 
     helper_lm = lotus.settings.helper_lm
@@ -277,7 +281,7 @@ def llm_naive_sort(
     docs: list[dict[str, Any]],
     model: lotus.models.LM,
     user_instruction: str,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
     safe_mode: bool = False,
 ) -> SemanticTopKOutput:
     """
@@ -293,7 +297,7 @@ def llm_naive_sort(
         model (lotus.models.LM): The language model instance to use for comparisons.
         user_instruction (str): The natural language instruction that defines
             the sorting criteria.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy to use.
+        prompt_strategy (PromptStrategy | None, optional): The reasoning strategy to use.
             Can be None, COT, or ZS_COT. Defaults to None.
         safe_mode (bool, optional): Whether to enable safe mode with cost estimation.
             Defaults to False.
@@ -319,7 +323,9 @@ def llm_naive_sort(
         desc="All-pairs comparisons",
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} LM calls [{elapsed}<{remaining}]",
     )
-    comparisons, explanations, tokens = compare_batch_binary(pairs, model, user_instruction, strategy=strategy)
+    comparisons, explanations, tokens = compare_batch_binary(
+        pairs, model, user_instruction, prompt_strategy=prompt_strategy
+    )
     pbar.update(len(pairs))
     pbar.close()
     if safe_mode:
@@ -350,7 +356,7 @@ def llm_quicksort(
     user_instruction: str,
     K: int,
     embedding: bool = False,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
     cascade_threshold: float | None = None,
     safe_mode: bool = False,
 ) -> SemanticTopKOutput:
@@ -370,7 +376,7 @@ def llm_quicksort(
         K (int): The number of top documents to return.
         embedding (bool, optional): Whether to use embedding optimization for
             pivot selection. Defaults to False.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy to use.
+        prompt_strategy (PromptStrategy | None, optional): The reasoning strategy to use.
             Can be None, COT, or ZS_COT. Defaults to None.
         cascade_threshold (float | None, optional): Confidence threshold for cascade
             filtering. If provided, uses a two-stage model approach. Defaults to None.
@@ -391,7 +397,9 @@ def llm_quicksort(
     stats["total_llm_calls"] = 0
     stats["explanations"] = {}
     if safe_mode:
-        sample_prompt = get_match_prompt_binary(docs[0], docs[1], user_instruction, strategy=strategy, model=model)
+        sample_prompt = get_match_prompt_binary(
+            docs[0], docs[1], user_instruction, prompt_strategy=prompt_strategy, model=model
+        )
         estimated_quickselect_calls = 2 * K
         estimated_quicksort_calls = 2 * len(docs) * np.log(len(docs))
         estimated_total_calls = estimated_quickselect_calls + estimated_quicksort_calls
@@ -425,7 +433,9 @@ def llm_quicksort(
 
         pairs = [(docs[indexes[j]], pivot) for j in range(low, high)]
         if cascade_threshold is None:
-            comparisons, explanations, tokens = compare_batch_binary(pairs, model, user_instruction, strategy=strategy)
+            comparisons, explanations, tokens = compare_batch_binary(
+                pairs, model, user_instruction, prompt_strategy=prompt_strategy
+            )
             stats["total_tokens"] += tokens
             stats["total_llm_calls"] += len(pairs)
 
@@ -440,7 +450,7 @@ def llm_quicksort(
                 model,
                 user_instruction,
                 cascade_threshold,
-                strategy=strategy,
+                prompt_strategy=prompt_strategy,
             )
 
             stats["total_small_tokens"] += small_tokens
@@ -499,14 +509,14 @@ class HeapDoc:
     Attributes:
         num_calls (int): Class variable tracking total number of LM calls.
         total_tokens (int): Class variable tracking total tokens used.
-        strategy (ReasoningStrategy | None): Class variable for reasoning strategy.
+        prompt_strategy (PromptStrategy | None): Class variable for reasoning strategy.
         model (lotus.models.LM | None): Class variable for the language model.
         explanations (dict[int, list[str]]): Class variable storing explanations.
     """
 
     num_calls: int = 0
     total_tokens: int = 0
-    strategy: ReasoningStrategy | None = None
+    prompt_strategy: PromptStrategy | None = None
     model: lotus.models.LM | None = None
     explanations: dict[int, list[str]] = {}
 
@@ -541,7 +551,7 @@ class HeapDoc:
         """
         assert HeapDoc.model is not None
         prompt = get_match_prompt_binary(
-            self.doc, other.doc, self.user_instruction, strategy=self.strategy, model=HeapDoc.model
+            self.doc, other.doc, self.user_instruction, prompt_strategy=HeapDoc.prompt_strategy, model=HeapDoc.model
         )
         HeapDoc.num_calls += 1
         HeapDoc.total_tokens += HeapDoc.model.count_tokens(prompt)
@@ -562,7 +572,7 @@ def llm_heapsort(
     model: lotus.models.LM,
     user_instruction: str,
     K: int,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
     safe_mode: bool = False,
 ) -> SemanticTopKOutput:
     """
@@ -579,7 +589,7 @@ def llm_heapsort(
         user_instruction (str): The natural language instruction that defines
             the sorting criteria.
         K (int): The number of top documents to return.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy to use.
+        prompt_strategy (PromptStrategy | None, optional): The reasoning strategy to use.
             Can be None, COT, or ZS_COT. Defaults to None.
         safe_mode (bool, optional): Whether to enable safe mode with cost estimation.
             Defaults to False.
@@ -595,7 +605,9 @@ def llm_heapsort(
     """
 
     if safe_mode:
-        sample_prompt = get_match_prompt_binary(docs[0], docs[1], user_instruction, strategy=strategy, model=model)
+        sample_prompt = get_match_prompt_binary(
+            docs[0], docs[1], user_instruction, prompt_strategy=prompt_strategy, model=model
+        )
         estimated_heap_construction_calls = len(docs) * np.log(len(docs))
         estimated_top_k_extraction_calls = K * np.log(len(docs))
         estimated_total_calls = estimated_heap_construction_calls + estimated_top_k_extraction_calls
@@ -604,7 +616,7 @@ def llm_heapsort(
 
     HeapDoc.num_calls = 0
     HeapDoc.total_tokens = 0
-    HeapDoc.strategy = strategy
+    HeapDoc.prompt_strategy = prompt_strategy
     HeapDoc.model = model
     HeapDoc.explanations = {}
     N = len(docs)
@@ -640,8 +652,8 @@ class SemTopKDataframe:
             - "naive": Naive quadratic approach
             - "quick-sem": Quicksort with semantic embedding optimization. Requires the passed column to be indexed with sem_index.
             Defaults to "quick".
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy
-            to use. Can be None, COT, or ZS_COT. Defaults to None.
+        prompt_strategy (PromptStrategy | None, optional): The prompt strategy
+            to use. Configures chain-of-thought, demonstrations, and bootstrapping. Defaults to None.
         group_by (list[str] | None, optional): Column names to group by before
             sorting. Each group will be sorted separately. Defaults to None.
         cascade_threshold (float | None, optional): Confidence threshold for
@@ -714,18 +726,18 @@ class SemTopKDataframe:
 
         Args:
             args (tuple): A tuple containing (group, user_instruction, K, method,
-                         strategy, group_by, cascade_threshold, return_stats).
+                         prompt_strategy, group_by, cascade_threshold, return_stats).
 
         Returns:
             pd.DataFrame | tuple[pd.DataFrame, dict[str, Any]]: The top-K results
                 for the group, optionally with statistics.
         """
-        group, user_instruction, K, method, strategy, group_by, cascade_threshold, return_stats = args
+        group, user_instruction, K, method, prompt_strategy, group_by, cascade_threshold, return_stats = args
         return group.sem_topk(
             user_instruction,
             K,
             method=method,
-            strategy=strategy,
+            prompt_strategy=prompt_strategy,
             group_by=None,
             cascade_threshold=cascade_threshold,
             return_stats=return_stats,
@@ -737,7 +749,7 @@ class SemTopKDataframe:
         user_instruction: str,
         K: int,
         method: str = "quick",
-        strategy: ReasoningStrategy | None = None,
+        prompt_strategy: PromptStrategy | None = None,
         group_by: list[str] | None = None,
         cascade_threshold: float | None = None,
         return_stats: bool = False,
@@ -763,7 +775,7 @@ class SemTopKDataframe:
         if group_by:
             grouped = self._obj.groupby(group_by)
             group_args = [
-                (group, user_instruction, K, method, strategy, None, cascade_threshold, return_stats)
+                (group, user_instruction, K, method, prompt_strategy, None, cascade_threshold, return_stats)
                 for _, group in grouped
             ]
 
@@ -798,7 +810,7 @@ class SemTopKDataframe:
                 formatted_usr_instr,
                 K,
                 embedding=method == "quick-sem",
-                strategy=strategy,
+                prompt_strategy=prompt_strategy,
                 cascade_threshold=cascade_threshold,
                 safe_mode=safe_mode,
             )
@@ -808,7 +820,7 @@ class SemTopKDataframe:
                 model,
                 formatted_usr_instr,
                 K,
-                strategy=strategy,
+                prompt_strategy=prompt_strategy,
                 safe_mode=safe_mode,
             )
         elif method == "naive":
@@ -816,7 +828,7 @@ class SemTopKDataframe:
                 multimodal_data,
                 model,
                 formatted_usr_instr,
-                strategy=strategy,
+                prompt_strategy=prompt_strategy,
                 safe_mode=safe_mode,
             )
         else:
@@ -826,7 +838,7 @@ class SemTopKDataframe:
         new_df = new_df.reindex(output.indexes).reset_index(drop=True)
         new_df = new_df.head(K)
 
-        if return_explanations and strategy == ReasoningStrategy.ZS_COT:
+        if return_explanations and prompt_strategy is not None and prompt_strategy.cot:
             explanations = []
             for idx in output.indexes[:K]:
                 explanation = "No Comparison Made"

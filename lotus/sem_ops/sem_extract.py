@@ -6,7 +6,7 @@ import lotus
 from lotus.cache import operator_cache
 from lotus.models import LM
 from lotus.templates import task_instructions
-from lotus.types import LMOutput, ReasoningStrategy, SemanticExtractOutput, SemanticExtractPostprocessOutput
+from lotus.types import LMOutput, PromptStrategy, SemanticExtractOutput, SemanticExtractPostprocessOutput
 from lotus.utils import show_safe_mode
 
 from .postprocessors import extract_postprocess
@@ -21,7 +21,7 @@ def sem_extract(
     safe_mode: bool = False,
     progress_bar_desc: str = "Extracting",
     return_explanations: bool = False,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
 ) -> SemanticExtractOutput:
     """
     Extracts structured attributes and values from a list of documents using a language model.
@@ -43,7 +43,7 @@ def sem_extract(
         extract_quotes (bool, optional): Whether to extract supporting quotes from
             the source text for each extracted value. Defaults to False.
         postprocessor (Callable, optional): A function to post-process the model
-            outputs. Should take (outputs, model, return_explanations) and return
+            outputs. Should take (outputs, model, cot_reasoning) and return
             SemanticExtractPostprocessOutput. Defaults to extract_postprocess.
         safe_mode (bool, optional): Whether to enable safe mode with cost estimation.
             Defaults to False.
@@ -52,8 +52,9 @@ def sem_extract(
         return_explanations (bool, optional): Whether to return explanations for
             the extraction decisions. Useful for debugging and understanding
             model reasoning. Defaults to False.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy to use.
-            Can be None, COT, or ZS_COT. Defaults to None.
+        prompt_strategy (PromptStrategy | None, optional): The prompt strategy to use.
+            Configures chain-of-thought, demonstrations, and bootstrapping. Defaults to None.
+
 
     Returns:
         SemanticExtractOutput: An object containing the extracted outputs, raw
@@ -69,11 +70,25 @@ def sem_extract(
         >>> output_cols = {"sentiment": "positive/negative/neutral", "rating": "1-5 scale"}
         >>> result = sem_extract(docs, model, output_cols)
         >>> print(result.outputs)  # [{"sentiment": "positive", "rating": "5"}]
+
+        >>> # Using PromptStrategy with chain-of-thought
+        >>> from lotus.types import PromptStrategy
+        >>> strat = PromptStrategy(cot=True)
+        >>> result = sem_extract(docs, model, output_cols, prompt_strategy=strat)
+
+        >>> # Using PromptStrategy with demonstrations
+        >>> import pandas as pd
+        >>> examples = pd.DataFrame({
+        ...     'text': ['Great product!', 'Terrible service'],
+        ...     'Answer': [{'sentiment': 'positive'}, {'sentiment': 'negative'}]
+        ... })
+        >>> strat = PromptStrategy(cot=True, dems=examples, max_dems=2)
+        >>> result = sem_extract(docs, model, output_cols, prompt_strategy=strat)
     """
     # prepare model inputs
     inputs = []
     for doc in docs:
-        prompt = task_instructions.extract_formatter(model, doc, output_cols, extract_quotes, strategy)
+        prompt = task_instructions.extract_formatter(model, doc, output_cols, extract_quotes, prompt_strategy)
         lotus.logger.debug(f"input to model: {prompt}")
         lotus.logger.debug(f"inputs content to model: {[x.get('content') for x in prompt]}")
         inputs.append(prompt)
@@ -88,7 +103,8 @@ def sem_extract(
     lm_output: LMOutput = model(inputs, response_format={"type": "json_object"}, progress_bar_desc=progress_bar_desc)
 
     # post process results
-    postprocess_output = postprocessor(lm_output.outputs, model, return_explanations)
+    cot_reasoning = prompt_strategy is not None and prompt_strategy.cot
+    postprocess_output = postprocessor(lm_output.outputs, model, cot_reasoning)
     lotus.logger.debug(f"raw_outputs: {lm_output.outputs}")
     lotus.logger.debug(f"outputs: {postprocess_output.outputs}")
     lotus.logger.debug(f"explanations: {postprocess_output.explanations}")
@@ -135,8 +151,9 @@ class SemExtractDataFrame:
         return_explanations (bool, optional): Whether to include explanations
             in the output DataFrame. Useful for debugging and understanding
             model reasoning. Defaults to False.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy
-            to use. Can be None, COT, or ZS_COT. Defaults to None.
+        prompt_strategy (PromptStrategy | None, optional): The prompt strategy to use.
+            Configures chain-of-thought, demonstrations, and bootstrapping. Defaults to None.
+
 
     Returns:
         pd.DataFrame: A DataFrame containing the original data plus the
@@ -162,10 +179,14 @@ class SemExtractDataFrame:
         ...     ['text'],
         ...     {'sentiment': 'positive/negative/neutral', 'emotion': 'joy/anger/sadness'}
         ... )
-        Extracting: 100%|█████████████████████████████████████████████████████████████████ 2/2 LM calls [00:00<00:00,  2.20it/s]
                     text  rating sentiment emotion
         0    Great product!    5  positive     joy
         1  Terrible service    1  negative   anger
+
+        >>> # Using PromptStrategy with chain-of-thought
+        >>> from lotus.types import PromptStrategy
+        >>> strat = PromptStrategy(cot=True)
+        >>> df.sem_extract(['text'], {'sentiment': 'positive/negative/neutral'}, prompt_strategy=strat)
     """
 
     def __init__(self, pandas_obj: pd.DataFrame):
@@ -205,7 +226,7 @@ class SemExtractDataFrame:
         safe_mode: bool = False,
         progress_bar_desc: str = "Extracting",
         return_explanations: bool = False,
-        strategy: ReasoningStrategy | None = None,
+        prompt_strategy: PromptStrategy | None = None,
     ) -> pd.DataFrame:
         if lotus.settings.lm is None:
             raise ValueError(
@@ -228,7 +249,7 @@ class SemExtractDataFrame:
             safe_mode=safe_mode,
             progress_bar_desc=progress_bar_desc,
             return_explanations=return_explanations,
-            strategy=strategy,
+            prompt_strategy=prompt_strategy,
         )
 
         new_df = self._obj.copy()

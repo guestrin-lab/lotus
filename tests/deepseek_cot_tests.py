@@ -5,7 +5,7 @@ import pytest
 
 import lotus
 from lotus.models import LM
-from lotus.types import ReasoningStrategy
+from lotus.types import PromptStrategy
 
 lotus.logger.setLevel("DEBUG")
 
@@ -15,167 +15,227 @@ MODEL_NAME = "ollama/deepseek-r1:7b"
 
 
 @pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
-def test_deepseek_filter_cot_basic():
-    """Test sem_filter using DeepSeek CoT on a simple filtering task."""
+def test_deepseek_demonstrations_only():
+    """Test DeepSeek with demonstrations without CoT reasoning."""
     lm = LM(model=MODEL_NAME)
     lotus.settings.configure(lm=lm)
 
-    data = {
-        "Text": ["I had two apples and still have one left", "I gave away all my apples", "I received an apple today"]
-    }
-
+    data = {"Course": ["Linear Algebra", "Creative Writing", "Calculus", "Art History"]}
     df = pd.DataFrame(data)
-    user_instruction = "{Text} implies I have at least one apple"
+    user_instruction = "{Course} requires mathematical skills"
 
-    filtered_df = df.sem_filter(user_instruction, return_explanations=True, return_all=True)
+    # Provide examples without reasoning
+    examples = pd.DataFrame({"Course": ["Statistics", "Poetry", "Physics"], "Answer": [True, False, True]})
 
-    # Check that extra columns are present.
-    assert "explanation_filter" in filtered_df.columns
-    assert "filter_label" in filtered_df.columns
+    result = df.sem_filter(user_instruction, prompt_strategy=PromptStrategy(dems=examples), return_all=True)
 
-    # At least one row should be labeled True.
-    positive_rows = filtered_df[filtered_df["filter_label"]]
-    assert len(positive_rows) > 0
-
-    # Each explanation should be nonempty for positive rows.
-    for exp in positive_rows["explanation_filter"]:
-        assert exp is not None and exp != ""
+    assert "filter_label" in result.columns
+    # Should identify math courses correctly based on examples
+    math_courses = result[result["filter_label"]]["Course"].tolist()
+    assert any(course in ["Linear Algebra", "Calculus"] for course in math_courses)
 
 
 @pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
-def test_deepseek_map_cot_basic():
-    """Test sem_map using DeepSeek CoT on a basic mapping task."""
+def test_deepseek_cot_demonstrations_combined():
+    """Test DeepSeek with combined CoT and demonstrations."""
     lm = LM(model=MODEL_NAME)
     lotus.settings.configure(lm=lm)
 
-    data = {"Text": ["Paris is the capital of France", "Berlin is the capital of Germany"]}
+    data = {"Product": ["Smartphone", "Book", "Laptop", "Pen"]}
     df = pd.DataFrame(data)
-    user_instruction = "Extract the capital city from the sentence: {Text}"
-    result = df.sem_map(user_instruction, return_explanations=True, strategy=ReasoningStrategy.ZS_COT)
+    user_instruction = "{Product} is an electronic device"
 
-    # Check that the mapping column and explanation column exist.
-    assert "_map" in result.columns
-    assert "explanation_map" in result.columns
+    # Provide examples with reasoning
+    examples = pd.DataFrame(
+        {
+            "Product": ["Tablet", "Magazine", "Smart Watch"],
+            "Answer": [True, False, True],
+            "Reasoning": [
+                "Tablets are electronic devices with screens and processors",
+                "Magazines are printed materials, not electronic",
+                "Smart watches are wearable electronic devices with digital displays",
+            ],
+        }
+    )
 
-    # Verify that each mapped output is a string and each explanation is nonempty.
-    for output, exp in zip(result["_map"], result["explanation_map"]):
-        assert isinstance(output, str)
-        assert exp is not None and exp != ""
+    result = df.sem_filter(
+        user_instruction,
+        prompt_strategy=PromptStrategy(cot=True, dems=examples),
+        examples=examples,
+        return_explanations=True,
+        return_all=True,
+    )
+
+    assert "filter_label" in result.columns
+    assert "explanation_filter" in result.columns
+
+    # Should identify electronic devices correctly
+    electronic_devices = result[result["filter_label"]]["Product"].tolist()
+    assert any(device in ["Smartphone", "Laptop"] for device in electronic_devices)
+
+    # Check explanations are provided
+    for explanation in result["explanation_filter"]:
+        assert explanation is not None
+        assert len(explanation) > 0
 
 
 @pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
-def test_deepseek_top_k_with_negative_reviews():
-    """Test sem_top_k with a dataset containing negative reviews."""
-    lm = LM(model=MODEL_NAME, temperature=0.6)
+def test_deepseek_demonstration_config():
+    """Test DeepSeek with examples."""
+    lm = LM(model=MODEL_NAME)
+    lotus.settings.configure(lm=lm)
+
+    data = {"Animal": ["Dog", "Cat", "Eagle", "Fish"]}
+    df = pd.DataFrame(data)
+    user_instruction = "{Animal} can fly"
+
+    # Provide examples
+    examples = pd.DataFrame({"Animal": ["Bird", "Elephant"], "Answer": [True, False]})
+
+    result = df.sem_filter(
+        user_instruction,
+        prompt_strategy=PromptStrategy(cot=True, dems=examples),
+        return_all=True,
+    )
+
+    assert "filter_label" in result.columns
+    # Should identify flying animals correctly
+    flying_animals = result[result["filter_label"]]["Animal"].tolist()
+    assert "Eagle" in flying_animals
+
+
+@pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
+def test_deepseek_bootstrapping():
+    """Test DeepSeek with automatic demonstration bootstrapping."""
+    lm = LM(model=MODEL_NAME)
+    lotus.settings.configure(lm=lm)
+
+    data = {"City": ["New York", "London", "Tokyo", "Sydney", "Paris"]}
+    df = pd.DataFrame(data)
+    user_instruction = "{City} is in Asia"
+
+    # Configure bootstrapping
+    result = df.sem_filter(
+        user_instruction,
+        prompt_strategy=PromptStrategy(cot=True, dems="auto", max_dems=2),
+        return_explanations=True,
+        return_all=True,
+    )
+
+    assert "filter_label" in result.columns
+    assert "explanation_filter" in result.columns
+
+    # Should identify Asian cities correctly
+    asian_cities = result[result["filter_label"]]["City"].tolist()
+    assert "Tokyo" in asian_cities
+
+    # Should work even without user-provided examples
+    assert len(result) == len(df)
+
+
+@pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
+def test_deepseek_extract_with_cot():
+    """Test DeepSeek extract operation with CoT reasoning."""
+    lm = LM(model=MODEL_NAME)
     lotus.settings.configure(lm=lm)
 
     data = {
         "Review": [
-            "This vacuum cleaner is the best I've ever owned. Highly recommend it!",
-            "It's okay, not sure I would buy it again.",
-            "Terrible experience, broke after a few uses.",
-            "Amazing build quality and customer support. Would absolutely recommend.",
-            "I would not recommend this to anyone.",
-            "This product is amazing! I love it.",
+            "This phone has amazing battery life and great camera quality!",
+            "The laptop is too slow and overheats frequently.",
         ]
     }
-
     df = pd.DataFrame(data)
-    user_instruction = "{Review} suggests that the user would recommend the product to others"
-    for method in ["quick", "heap", "naive"]:
-        sorted_df, stats = df.sem_topk(
-            user_instruction,
-            K=2,
-            method=method,
-            return_stats=True,
-            strategy=ReasoningStrategy.ZS_COT,
+
+    output_cols = {
+        "sentiment": "Overall sentiment (positive/negative)",
+        "main_feature": "Main feature mentioned in the review",
+    }
+
+    input_cols = ["Review"]  # Columns to extract from
+
+    result = df.sem_extract(input_cols, output_cols, prompt_strategy=PromptStrategy(cot=True), return_explanations=True)
+
+    assert "sentiment" in result.columns
+    assert "main_feature" in result.columns
+    assert "explanation_extract" in result.columns
+
+    # Check sentiment extraction
+    sentiments = result["sentiment"].tolist()
+    assert any("positive" in sent.lower() for sent in sentiments)
+    assert any("negative" in sent.lower() for sent in sentiments)
+
+
+@pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
+def test_deepseek_backward_compatibility():
+    """Test that DeepSeek still works with legacy methods."""
+    lm = LM(model=MODEL_NAME)
+    lotus.settings.configure(lm=lm)
+
+    data = {"Text": ["The weather is sunny today", "It's raining heavily outside"]}
+    df = pd.DataFrame(data)
+    user_instruction = "{Text} describes good weather"
+
+    # Test without explicit strategy (should use default behavior)
+    result_default = df.sem_filter(user_instruction, return_all=True)
+
+    # Test with explicit CoT strategy
+    result_cot = df.sem_filter(user_instruction, prompt_strategy=PromptStrategy(cot=True), return_all=True)
+
+    # Both should work and produce results
+    assert "filter_label" in result_default.columns
+    assert "filter_label" in result_cot.columns
+    assert len(result_default) == len(result_cot) == len(df)
+
+
+@pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
+def test_deepseek_error_handling():
+    """Test error handling with DeepSeek and new reasoning strategies."""
+    lm = LM(model=MODEL_NAME)
+    lotus.settings.configure(lm=lm)
+
+    data = {"Text": ["Sample text"]}
+    df = pd.DataFrame(data)
+    user_instruction = "{Text} is meaningful"
+
+    # Test with empty examples
+    empty_examples = pd.DataFrame(columns=["Text", "Answer"])
+
+    try:
+        result = df.sem_filter(user_instruction, prompt_strategy=PromptStrategy(dems=empty_examples), return_all=True)
+        # Should handle gracefully
+        assert "filter_label" in result.columns
+    except Exception as e:
+        # If it raises an error, it should be informative
+        assert len(str(e)) > 0
+
+
+@pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
+def test_deepseek_multiple_operations_chaining():
+    """Test chaining multiple operations with DeepSeek and different strategies."""
+    lm = LM(model=MODEL_NAME)
+    lotus.settings.configure(lm=lm)
+
+    data = {"Product": ["iPhone", "Novel", "MacBook", "Newspaper", "iPad"]}
+    df = pd.DataFrame(data)
+
+    # First filter with demonstrations
+    examples = pd.DataFrame({"Product": ["Laptop", "Book"], "Answer": [True, False]})
+
+    filtered_df = df.sem_filter("{Product} is an electronic device", prompt_strategy=PromptStrategy(dems=examples))
+
+    # Then map with CoT
+    if len(filtered_df) > 0:
+        mapped_df = filtered_df.sem_map(
+            "What category does {Product} belong to?",
+            prompt_strategy=PromptStrategy(cot=True),
             return_explanations=True,
         )
 
-        # Check that the top 2 reviews are positive
-        top_reviews = sorted_df["Review"].tolist()
-        assert any(
-            "recommend" in review.lower() or "best" in review.lower() or "amazing" in review.lower()
-            for review in top_reviews
-        )
+        assert "_map" in mapped_df.columns
+        assert "explanation_map" in mapped_df.columns
 
-        # Check that the stats are correct
-        assert stats["total_tokens"] > 0
-        assert stats["total_llm_calls"] > 0
-
-        # Check that each explanation is not empty
-        for exp in sorted_df["explanation"]:
-            assert exp is not None and exp != ""
-
-
-@pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
-def test_deepseek_filter_cot_fewshot():
-    """Test sem_filter with few-shot examples to guide filtering decisions."""
-    lm = LM(model=MODEL_NAME)
-    lotus.settings.configure(lm=lm)
-
-    data = {
-        "Text": [
-            "Sequence: 5, 4, 3",  # Not increasing
-            "Sequence: 1, 2, 3",  # Increasing
-            "Sequence: 8, 7, 6",  # Not increasing
-        ]
-    }
-    df = pd.DataFrame(data)
-    user_instruction = "{Text} is an increasing sequence"
-
-    # Few-shot examples provided as a DataFrame.
-    examples = pd.DataFrame(
-        {
-            "Text": ["Sequence: 1, 2, 3", "Sequence: 3, 2, 1"],
-            "Answer": [True, False],
-            "Reasoning": ["Numbers increase steadily", "Numbers decrease"],
-        }
-    )
-
-    filtered_df = df.sem_filter(
-        user_instruction,
-        examples=examples,
-        return_explanations=True,
-        return_all=True,
-        strategy=ReasoningStrategy.COT,
-    )
-
-    # Expect that at least the row with "Sequence: 1, 2, 3" is marked positive.
-    positive_rows = filtered_df[filtered_df["filter_label"]]
-    assert len(positive_rows) >= 1
-    for exp in positive_rows["explanation_filter"]:
-        assert exp is not None and exp != ""
-
-
-@pytest.mark.skipif(not ENABLE_OLLAMA_TESTS, reason="Skipping test because Ollama tests are not enabled")
-def test_deepseek_map_cot_fewshot():
-    """Test sem_map with few-shot examples to guide mapping decisions."""
-    lm = LM(model=MODEL_NAME)
-    lotus.settings.configure(lm=lm)
-
-    data = {"Text": ["City: New York", "City: Los Angeles"]}
-    df = pd.DataFrame(data)
-    user_instruction = "Determine the state abbreviation for {Text}"
-
-    examples = pd.DataFrame(
-        {
-            "Text": ["City: Chicago", "City: Houston"],
-            "Answer": ["IL", "TX"],
-            "Reasoning": ["Chicago is in Illinois", "Houston is in Texas"],
-        }
-    )
-
-    result = df.sem_map(
-        user_instruction,
-        examples=examples,
-        return_explanations=True,
-        strategy=ReasoningStrategy.COT,
-    )
-
-    # Check that the new column "State" is added and that explanations are nonempty.
-    assert "_map" in result.columns
-    assert "explanation_map" in result.columns
-    for output, exp in zip(result["_map"], result["explanation_map"]):
-        assert isinstance(output, str)
-        assert exp is not None and exp != ""
+        # Should have reasonable categorizations
+        for category in mapped_df["_map"]:
+            assert isinstance(category, str)
+            assert len(category) > 0

@@ -6,7 +6,7 @@ from tqdm import tqdm
 import lotus
 from lotus.cache import operator_cache
 from lotus.templates import task_instructions
-from lotus.types import CascadeArgs, ReasoningStrategy, SemanticJoinOutput
+from lotus.types import CascadeArgs, PromptStrategy, SemanticJoinOutput
 from lotus.utils import show_safe_mode
 
 from .cascade_utils import calibrate_sem_sim_join, importance_sampling, learn_cascade_thresholds
@@ -26,7 +26,7 @@ def sem_join(
     examples_answers: list[bool] | None = None,
     cot_reasoning: list[str] | None = None,
     default: bool = True,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
     safe_mode: bool = False,
     show_progress_bar: bool = True,
     progress_bar_desc: str = "Join comparisons",
@@ -67,7 +67,7 @@ def sem_join(
             Defaults to None.
         default (bool, optional): The default value to use when the model
             output cannot be parsed as a boolean. Defaults to True.
-        strategy (ReasoningStrategy | None, optional): The reasoning strategy
+        prompt_strategy (PromptStrategy | None, optional): The reasoning strategy
             to use. Can be None, COT, or ZS_COT. Defaults to None.
         safe_mode (bool, optional): Whether to enable safe mode with cost
             estimation. Defaults to False.
@@ -111,7 +111,7 @@ def sem_join(
                 examples_multimodal_data,
                 examples_answers,
                 cot_reasoning,
-                strategy,
+                prompt_strategy,
             )
         )
         estimated_total_calls = len(l1) * len(l2)
@@ -142,7 +142,7 @@ def sem_join(
         examples_answers=examples_answers,
         cot_reasoning=cot_reasoning,
         default=default,
-        strategy=strategy,
+        prompt_strategy=prompt_strategy,
         show_progress_bar=False,
     )
 
@@ -193,7 +193,7 @@ def sem_join_cascade(
     map_examples: pd.DataFrame | None = None,
     cot_reasoning: list[str] | None = None,
     default: bool = True,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
     safe_mode: bool = False,
 ) -> SemanticJoinOutput:
     """
@@ -253,7 +253,7 @@ def sem_join_cascade(
         map_examples=map_examples,
         cot_reasoning=cot_reasoning,
         default=default,
-        strategy=strategy,
+        prompt_strategy=prompt_strategy,
     )
 
     num_helper = len(helper_high_conf)
@@ -296,7 +296,7 @@ def sem_join_cascade(
         examples_answers=examples_answers,
         cot_reasoning=cot_reasoning,
         default=default,
-        strategy=strategy,
+        prompt_strategy=prompt_strategy,
         show_progress_bar=True,
     )
 
@@ -428,7 +428,7 @@ def join_optimizer(
     map_examples: pd.DataFrame | None = None,
     cot_reasoning: list[str] | None = None,
     default: bool = True,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, int, int]:
     """
     Find most cost-effective join plan between Search-Filter and Map-Search-Filter
@@ -472,7 +472,7 @@ def join_optimizer(
         examples_answers=examples_answers,
         cot_reasoning=cot_reasoning,
         default=default,
-        strategy=strategy,
+        prompt_strategy=prompt_strategy,
     )
     sf_high_conf = sf_helper_join[sf_helper_join["_scores"] >= sf_t_pos]
     sf_high_conf_neg = len(sf_helper_join[sf_helper_join["_scores"] <= sf_t_neg])
@@ -495,7 +495,7 @@ def join_optimizer(
         examples_answers=examples_answers,
         cot_reasoning=cot_reasoning,
         default=default,
-        strategy=strategy,
+        prompt_strategy=prompt_strategy,
     )
     msf_high_conf = msf_helper_join[msf_helper_join["_scores"] >= msf_t_pos]
     msf_high_conf_neg = len(msf_helper_join[msf_helper_join["_scores"] <= msf_t_neg])
@@ -538,7 +538,7 @@ def learn_join_cascade_threshold(
     examples_answers: list[bool] | None = None,
     cot_reasoning: list[str] | None = None,
     default: bool = True,
-    strategy: ReasoningStrategy | None = None,
+    prompt_strategy: PromptStrategy | None = None,
 ) -> tuple[float, float, int]:
     """
     Extract a small sample of the data and find the optimal threshold pair that satisfies the recall and
@@ -582,7 +582,7 @@ def learn_join_cascade_threshold(
             examples_multimodal_data=examples_multimodal_data,
             examples_answers=examples_answers,
             cot_reasoning=cot_reasoning,
-            strategy=strategy,
+            prompt_strategy=prompt_strategy,
             progress_bar_desc="Running oracle for threshold learning",
         )
 
@@ -675,7 +675,7 @@ class SemJoinDataframe:
         how: str = "inner",
         suffix: str = "_join",
         examples: pd.DataFrame | None = None,
-        strategy: ReasoningStrategy | None = None,
+        prompt_strategy: PromptStrategy | None = None,
         default: bool = True,
         cascade_args: CascadeArgs | None = None,
         return_stats: bool = False,
@@ -737,7 +737,7 @@ class SemJoinDataframe:
             examples_multimodal_data = task_instructions.df2multimodal_info(examples, [real_left_on, real_right_on])
             examples_answers = examples["Answer"].tolist()
 
-            if strategy == ReasoningStrategy.COT:
+            if prompt_strategy is not None and prompt_strategy.cot:
                 return_explanations = True
                 cot_reasoning = examples["Reasoning"].tolist()
 
@@ -768,7 +768,7 @@ class SemJoinDataframe:
                 map_examples=cascade_args.map_examples,
                 cot_reasoning=cot_reasoning,
                 default=default,
-                strategy=strategy,
+                prompt_strategy=prompt_strategy,
                 safe_mode=safe_mode,
             )
         else:
@@ -785,7 +785,7 @@ class SemJoinDataframe:
                 examples_answers=examples_answers,
                 cot_reasoning=cot_reasoning,
                 default=default,
-                strategy=strategy,
+                prompt_strategy=prompt_strategy,
                 safe_mode=safe_mode,
                 progress_bar_desc=progress_bar_desc,
             )

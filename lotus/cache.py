@@ -42,7 +42,7 @@ def operator_cache(func: Callable) -> Callable:
             def serialize(value: Any) -> Any:
                 """
                 Serialize a value into a JSON-serializable format.
-                Supports basic types, pandas DataFrames, and objects with a `dict` or `__dict__` method.
+                Supports basic types, pandas DataFrames, Enums, and objects with a `dict` or `__dict__` method.
                 """
                 if value is None or isinstance(value, (str, int, float, bool)):
                     return value
@@ -52,6 +52,8 @@ def operator_cache(func: Callable) -> Callable:
                     return [serialize(item) for item in value]
                 elif isinstance(value, dict):
                     return {key: serialize(val) for key, val in value.items()}
+                elif isinstance(value, Enum):
+                    return {"__enum__": value.__class__.__name__, "value": value.name}
                 elif hasattr(value, "dict"):
                     return value.dict()
                 elif hasattr(value, "__dict__"):
